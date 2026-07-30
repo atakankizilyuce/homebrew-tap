@@ -1,0 +1,11 @@
+# Normalize all text files to LF in the repository and in the working tree.
+# A Homebrew formula is Ruby read on macOS and Linux, and a Scoop manifest is JSON;
+# neither should ever arrive with CRLF because someone edited it on Windows.
+* text=auto eol=lf
+
+# The file types this repository actually holds.
+*.rb      text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
