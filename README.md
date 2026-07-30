@@ -30,6 +30,7 @@ Yes — a Scoop bucket at a URL that says `homebrew`. See above for why.
 |------|-----|
 | `Formula/` | Homebrew formulae, one `.rb` per package |
 | `bucket/` | Scoop manifests, one `.json` per package |
+| `winget/<version>/` | Exactly what was sent to `microsoft/winget-pkgs`, kept so a reviewer sees it in the same diff |
 
 ### Packages
 
@@ -56,14 +57,23 @@ directory and cut a release.
 
 ## How a version lands here
 
-A release in a source repository dispatches an event to this repository. A workflow here
-regenerates the manifests — downloading each published asset and hashing what it actually
-got — and opens a pull request. **Merging that pull request is the publish.** Until then the
-new version exists on its releases page and nowhere else.
+A release in a source repository dispatches a `release-published` event here.
+[`publish.yml`](.github/workflows/publish.yml) regenerates the manifests — downloading each
+published asset and hashing what it actually got — and opens a pull request.
 
-Nothing pushes to `main` directly, deliberately: a tag pushed by mistake should not become an
-installed version, and a human reading a diff is the check that prevents it. Prereleases are
-refused outright — a beta must never be what `brew install` produces.
+**Merging that pull request is the publish.** Homebrew and Scoop users have the new version
+at that moment, and the merge starts the winget submission
+([`winget.yml`](.github/workflows/winget.yml)), which Microsoft then reviews on their own
+schedule. Until the merge, the new version exists on its releases page and nowhere else.
+
+Nothing pushes to `main` directly, and `main` is protected so nothing can: a tag pushed by
+mistake should not become an installed version, and a human reading a diff is the check that
+prevents it. Prereleases are refused outright — a beta must never be what `brew install`
+produces.
+
+`publish.yml` can also be run by hand with a tag, for when a dispatch was missed or a
+manifest needs regenerating. It takes a `dry_run` option that generates and diffs without
+opening anything, which is the way to rehearse a change to the pipeline itself.
 
 ## Adding another package
 
@@ -74,8 +84,15 @@ packaging/generate.sh <tag> <output-dir>
 ```
 
 emitting one `.rb` and one `.json` into the output directory, with checksums taken from the
-assets it downloaded rather than from a local build. The workflow here checks that repository
-out at the tag, runs the script, and files the results under `Formula/` and `bucket/`.
+assets it downloaded rather than from a local build. Any `.yaml` files it writes are treated
+as winget manifests. The workflow here checks that repository out at the tag, runs the
+script, and files the results.
+
+It dispatches with a payload naming itself:
+
+```json
+{ "app": "leavesafe", "repo": "atakankizilyuce/LeaveSafe", "tag": "v1.3.0" }
+```
 
 Users who have already tapped this repository get every package added later without doing
 anything.

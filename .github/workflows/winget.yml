@@ -1,0 +1,100 @@
+name: Submit to winget
+
+# winget is the one channel this repository cannot serve directly: its manifests
+# live in microsoft/winget-pkgs and arrive there by pull request. So the merge
+# that publishes to Homebrew and Scoop is also what starts the winget submission,
+# and one action is the go-ahead for all three.
+#
+# Microsoft then reviews on their own schedule. Their automated checks run
+# SmartScreen against the installer URL, so an unsigned binary can be held up.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'winget/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to submit, e.g. 1.3.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Open a pull request against microsoft/winget-pkgs
+    # wingetcreate is a Windows tool, so this is the one job that cannot run on
+    # ubuntu.
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The version is inferred from what the merge added, which needs the
+          # commit before it to compare against.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Work out which version to submit
+        id: pick
+        shell: bash
+        env:
+          # Through the environment rather than interpolated into the script:
+          # this value is checked below, and the check has to happen before the
+          # shell has already seen it.
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${REQUESTED:-}" ]; then
+            version="$REQUESTED"
+          else
+            # The directory this push added under winget/. Taking the newest
+            # directory instead would re-submit an old version whenever an
+            # unrelated file changed.
+            version="$(git diff --name-only --diff-filter=A HEAD~1 HEAD -- 'winget/**' \
+              | sed -n 's|^winget/\([^/]*\)/.*|\1|p' | sort -u | tail -n1)"
+          fi
+
+          if [ -z "$version" ]; then
+            echo "::notice::no new winget manifests in this push — nothing to submit"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+            echo "::error::$version is not a version"
+            exit 1
+          fi
+          if [ ! -d "winget/$version" ]; then
+            echo "::error::winget/$version does not exist"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the manifests
+        if: steps.pick.outputs.skip != 'true'
+        shell: pwsh
+        run: winget validate --manifest "winget/${{ steps.pick.outputs.version }}"
+
+      - name: Submit
+        if: steps.pick.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          # Through the environment, never as an argument: this repository is
+          # public, so every workflow log line is world-readable and an argument
+          # can end up in one.
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Output "::error::WINGET_TOKEN is not set — add it as a repository secret"
+            exit 1
+          }
+          # These manifests were generated against the published assets and are
+          # what the merged pull request was reviewed as. Submitting them, rather
+          # than having wingetcreate rebuild them, keeps the reviewed bytes and
+          # the submitted bytes the same.
+          wingetcreate submit --token $env:WINGET_TOKEN "winget/${{ steps.pick.outputs.version }}"
