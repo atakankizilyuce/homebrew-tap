@@ -1,0 +1,231 @@
+name: Publish
+
+# Regenerate the manifests for a released version and open a pull request.
+#
+# Merging that pull request is the publish. Nothing here pushes to main, and main
+# is protected so nothing can: a tag pushed by mistake must not become a version
+# people install, and a human reading a diff is the check that prevents it.
+#
+# A source repository qualifies by providing:
+#
+#     packaging/generate.sh <tag> <output-dir>
+#
+# emitting one .rb and one .json, with checksums taken from the assets it
+# downloaded rather than from a local build. See README.md.
+on:
+  # Sent by a source repository's release workflow, for stable tags only.
+  repository_dispatch:
+    types: [release-published]
+
+  # The same job by hand, for when a dispatch was missed, a manifest needs
+  # regenerating, or the whole thing wants rehearsing.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The released tag, e.g. v1.3.0
+        required: true
+      repo:
+        description: Source repository
+        required: false
+        default: atakankizilyuce/LeaveSafe
+      app:
+        description: Package name
+        required: false
+        default: leavesafe
+      dry_run:
+        description: Generate and diff, but open no pull request
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    name: Generate manifests and open a pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Read the request
+        id: req
+        env:
+          # A dispatch payload is only as trustworthy as whoever holds the token
+          # that sent it, and a manual run has no upstream guard behind it at
+          # all. Both are read here and validated in the next step.
+          EVENT: ${{ github.event_name }}
+          D_TAG: ${{ github.event.client_payload.tag }}
+          D_REPO: ${{ github.event.client_payload.repo }}
+          D_APP: ${{ github.event.client_payload.app }}
+          W_TAG: ${{ inputs.tag }}
+          W_REPO: ${{ inputs.repo }}
+          W_APP: ${{ inputs.app }}
+          W_DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "repository_dispatch" ]; then
+            tag="$D_TAG"; repo="$D_REPO"; app="$D_APP"; dry=false
+          else
+            tag="$W_TAG"; repo="$W_REPO"; app="$W_APP"; dry="$W_DRY"
+          fi
+          : "${repo:=atakankizilyuce/LeaveSafe}"
+          : "${app:=leavesafe}"
+          {
+            echo "tag=$tag"
+            echo "repo=$repo"
+            echo "app=$app"
+            echo "dry=$dry"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate, and refuse prereleases
+        env:
+          TAG: ${{ steps.req.outputs.tag }}
+          REPO: ${{ steps.req.outputs.repo }}
+          APP: ${{ steps.req.outputs.app }}
+        run: |
+          set -euo pipefail
+
+          # Everything below reaches a shell, a filesystem path and a git ref, so
+          # each value is checked against what it is allowed to look like rather
+          # than trusted because of where it came from.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$TAG does not look like a version tag"
+            exit 1
+          fi
+          if ! printf '%s' "$REPO" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+            echo "::error::$REPO is not an owner/name repository"
+            exit 1
+          fi
+          if ! printf '%s' "$APP" | grep -Eq '^[a-z0-9][a-z0-9-]*$'; then
+            echo "::error::$APP is not a package name"
+            exit 1
+          fi
+
+          # A beta must never be what `brew install` produces. The dispatching
+          # workflow already refuses these; this is the guard that holds when the
+          # run was started by hand.
+          case "$TAG" in
+            *-*)
+              echo "::error::$TAG is a prerelease. Package managers publish stable releases only."
+              exit 1
+              ;;
+          esac
+
+      - name: Check out the source repository at the tag
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ steps.req.outputs.repo }}
+          ref: ${{ steps.req.outputs.tag }}
+          path: source
+          persist-credentials: false
+
+      - name: Check out this tap
+        uses: actions/checkout@v5
+        with:
+          path: tap
+
+      - name: Generate the manifests
+        env:
+          TAG: ${{ steps.req.outputs.tag }}
+        working-directory: source
+        run: |
+          set -euo pipefail
+          if [ ! -x packaging/generate.sh ]; then
+            echo "::error::this repository has no executable packaging/generate.sh"
+            exit 1
+          fi
+          # It downloads every published asset and hashes what it actually got,
+          # so this both fills the templates and re-verifies the shipped sums.
+          packaging/generate.sh "$TAG" "$GITHUB_WORKSPACE/generated"
+
+      - name: File them under Formula, bucket and winget
+        id: place
+        env:
+          TAG: ${{ steps.req.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          shopt -s nullglob
+          rb=("$GITHUB_WORKSPACE"/generated/*.rb)
+          json=("$GITHUB_WORKSPACE"/generated/*.json)
+          if [ ${#rb[@]} -ne 1 ] || [ ${#json[@]} -ne 1 ]; then
+            echo "::error::expected exactly one .rb and one .json, got ${#rb[@]} and ${#json[@]}"
+            exit 1
+          fi
+
+          mkdir -p tap/Formula tap/bucket "tap/winget/$version"
+          cp "${rb[0]}" tap/Formula/
+          cp "${json[0]}" tap/bucket/
+
+          # The winget manifests are committed too. They are not what Homebrew or
+          # Scoop read, but they are exactly what gets sent to Microsoft, and a
+          # reviewer should be able to see that in the same diff.
+          winget=("$GITHUB_WORKSPACE"/generated/*.yaml)
+          if [ ${#winget[@]} -gt 0 ]; then
+            cp "${winget[@]}" "tap/winget/$version/"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Show what changed
+        id: diff
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::the manifests already match what is published — nothing to do"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          git -c color.ui=always diff --cached --stat
+          git diff --cached
+
+      - name: Stop here (rehearsal)
+        if: steps.req.outputs.dry == 'true'
+        run: |
+          echo "::notice::dry run — the diff above was not committed and no pull request was opened"
+
+      - name: Open the pull request
+        if: steps.req.outputs.dry != 'true' && steps.diff.outputs.changed == 'true'
+        working-directory: tap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP: ${{ steps.req.outputs.app }}
+          TAG: ${{ steps.req.outputs.tag }}
+          REPO: ${{ steps.req.outputs.repo }}
+          VERSION: ${{ steps.place.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="publish/$APP-$TAG"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -q -m "Publish $APP $TAG to Homebrew and Scoop"
+          git push -q --force-with-lease origin "$branch"
+
+          # --force-with-lease above so re-running for the same tag updates the
+          # branch instead of failing, without ever overwriting someone else's work.
+          if gh pr view "$branch" --json number > /dev/null 2>&1; then
+            echo "::notice::pull request for $branch already exists and was updated"
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Publish $APP $TAG" \
+            --body "$(cat <<EOF
+          Generated from [\`$REPO@$TAG\`](https://github.com/$REPO/releases/tag/$TAG) by \`packaging/generate.sh\`, which downloaded every published asset and hashed what it actually got. The checksums here describe the files users will download.
+
+          **Merging this is the publish.** Homebrew and Scoop users get $VERSION at that moment, and the merge submits the winget manifests to \`microsoft/winget-pkgs\`.
+
+          Before merging, check that the version and the URLs match the release, and that the hashes were produced by this run rather than carried over.
+          EOF
+          )"
