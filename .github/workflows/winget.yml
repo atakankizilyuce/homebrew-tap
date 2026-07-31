@@ -80,6 +80,13 @@ jobs:
         shell: pwsh
         run: winget validate --manifest "winget/${{ steps.pick.outputs.version }}"
 
+      # The runner image ships winget but not wingetcreate. aka.ms/wingetcreate
+      # is the single-file build Microsoft publishes for exactly this use.
+      - name: Install wingetcreate
+        if: steps.pick.outputs.skip != 'true'
+        shell: pwsh
+        run: Invoke-WebRequest -Uri https://aka.ms/wingetcreate -OutFile "$env:RUNNER_TEMP\wingetcreate.exe"
+
       - name: Submit
         if: steps.pick.outputs.skip != 'true'
         shell: pwsh
@@ -97,4 +104,4 @@ jobs:
           # what the merged pull request was reviewed as. Submitting them, rather
           # than having wingetcreate rebuild them, keeps the reviewed bytes and
           # the submitted bytes the same.
-          wingetcreate submit --token $env:WINGET_TOKEN "winget/${{ steps.pick.outputs.version }}"
+          & "$env:RUNNER_TEMP\wingetcreate.exe" submit --token $env:WINGET_TOKEN "winget/${{ steps.pick.outputs.version }}"
