@@ -80,12 +80,27 @@ jobs:
         shell: pwsh
         run: winget validate --manifest "winget/${{ steps.pick.outputs.version }}"
 
-      # The runner image ships winget but not wingetcreate. aka.ms/wingetcreate
-      # is the single-file build Microsoft publishes for exactly this use.
+      # The runner image ships winget but not wingetcreate, so fetch the
+      # single-file build from the tool's own releases. Not aka.ms/wingetcreate:
+      # that short link is dead and redirects to Bing, which is how a submission
+      # once failed on a "corrupted" executable that was really an HTML page.
       - name: Install wingetcreate
         if: steps.pick.outputs.skip != 'true'
         shell: pwsh
-        run: Invoke-WebRequest -Uri https://aka.ms/wingetcreate -OutFile "$env:RUNNER_TEMP\wingetcreate.exe"
+        run: |
+          $exe = "$env:RUNNER_TEMP\wingetcreate.exe"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/winget-create/releases/latest/download/wingetcreate.exe" -OutFile $exe
+          # Executables start with "MZ". Catch a dead link here, with a message
+          # that says what happened, rather than at the submit step with one
+          # that does not.
+          $head = New-Object byte[] 2
+          $stream = [IO.File]::OpenRead($exe)
+          $null = $stream.Read($head, 0, 2)
+          $stream.Close()
+          if ([Text.Encoding]::ASCII.GetString($head) -ne 'MZ') {
+            Write-Output "::error::the wingetcreate download is not an executable — has the release URL moved?"
+            exit 1
+          }
 
       - name: Submit
         if: steps.pick.outputs.skip != 'true'
