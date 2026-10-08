@@ -3,28 +3,28 @@
 class Leavesafe < Formula
   desc "Turn your phone into a remote alarm for your laptop"
   homepage "https://github.com/atakankizilyuce/LeaveSafe"
-  version "1.6.0"
+  version "1.6.1"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
-      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.0/leavesafe-darwin-arm64"
-      sha256 "556d229772f428ae407e55c389913274dc776edbe970c702bc4b225b4ea60853"
+      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.1/leavesafe-darwin-arm64"
+      sha256 "a376cdeba23aaeb0d77c9c5244b3bd427e4b19d8841283c93ad29b80a7bd5f0a"
     end
     on_intel do
-      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.0/leavesafe-darwin-amd64"
-      sha256 "fc69a597808eba5029c89a94f09351842319a09263d533248f20677d8db2dea6"
+      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.1/leavesafe-darwin-amd64"
+      sha256 "5c01662576735fd9096f5b979a725458fb52247ff4afbd8f011046021ff5de9c"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.0/leavesafe-linux-arm64"
-      sha256 "35ecb7b985a21a4b34d06179359a5372bf957e64f5cf00c62176b3e66e4b3b69"
+      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.1/leavesafe-linux-arm64"
+      sha256 "c81a7c6aa791d642b0f885868737287edc59bebaca64b7550023027375048496"
     end
     on_intel do
-      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.0/leavesafe-linux-amd64"
-      sha256 "488b7a26436cc5b9b3c5d5eb899d20cdf24db7413494942e5d0bc8c7d52a2c88"
+      url "https://github.com/atakankizilyuce/LeaveSafe/releases/download/v1.6.1/leavesafe-linux-amd64"
+      sha256 "e6f6f5fc9c37751c88887468d3b6a92fae6977ef849856e5f1a7d52550bd608b"
     end
   end
 
