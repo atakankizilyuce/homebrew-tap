@@ -24,6 +24,41 @@ scoop install leavesafe
 
 Yes — a Scoop bucket at a URL that says `homebrew`. See above for why.
 
+### Language support and the next release
+
+The 25-language update is being developed in the
+[LeaveSafe source repository](https://github.com/atakankizilyuce/LeaveSafe).
+The manifests currently committed here still install **1.6.1**; this documentation
+does not make the development translations available in that existing binary.
+The Flutter mobile and desktop application's translations are maintained in
+[leavesafe-app](https://github.com/atakankizilyuce/leavesafe-app) and ship separately.
+
+The daemon's planned language codes are:
+
+`en`, `zh-Hans`, `hi`, `es`, `ar`, `fr`, `bn`, `pt`, `id`, `ur`, `ru`, `de`,
+`ja`, `pcm`, `arz`, `mr`, `vi`, `te`, `sw`, `ha`, `tr`, `pnb-Arab`, `tl`,
+`ta`, `yue-Hant`.
+
+Once a reviewed release containing them is published, its setup language choice
+applies to terminal instructions and its browser panel has its own language
+selector. Both read bundled catalogs; translating the interface does not require
+an online translation service. OS-generated diagnostic output and literal shell
+commands remain in their original form. Terminal glyph support depends on the
+terminal's installed fonts.
+
+For that release, maintainers should verify the source commit's full language and
+independent-review gates, successful platform tests, and Sonar evidence: no new
+issues or security problems and at least 80% measured code coverage. Then publish
+the approved source tag, inspect the generated manifest PR here, and verify the
+downloaded assets and their hashes before merging it. Do not replace the current
+1.6.1 checksums with development builds or invent a release version.
+
+This repository contains generated package metadata rather than the application
+translation catalogs. A documentation-only change here has no executable lines
+on which to measure code coverage; the coverage requirement is checked on the
+application and daemon code that is actually shipped. Package-manager descriptions
+and store listings are a separate localization stage after application work.
+
 ## What is here
 
 | Path | For |
